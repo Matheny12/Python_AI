@@ -41,7 +41,8 @@ initial_history = load_history()
 chat_session = client.chats.create(
 	model=model_ID,
 	config=types.GenerateContentConfig(
-		system_instruction="You are a helpful and witty AI assistant."
+		system_instruction="You are a helpful and witty AI assistant.",
+		tools=[types.Tool(google_search=types.GoogleSearch())]
 	),
 	history=initial_history
 )
