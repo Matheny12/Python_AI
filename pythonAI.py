@@ -5,7 +5,7 @@ from openai import OpenAI
 
 client = OpenAI(
 	base_url="https://models.inference.ai.azure.com",
-	api_key=""
+	api_key="(Place GitHub Token Here)"
 	)
 
 DB_FILE = "chat_data.json"
