@@ -1,52 +1,89 @@
-import openai
 import os
 import json
-from openai import OpenAI
+import time
+from google import genai
+from google.genai import types
 
-client = OpenAI(
-	base_url="https://models.inference.ai.azure.com",
-	api_key="(Place GitHub Token Here)"
-	)
+client = genai.Client(api_key="(Place Gemini Api Key Here)")
 
 DB_FILE = "chat_data.json"
+model_ID = "gemini-2.5-flash-lite"
 
 def load_history():
 	if os.path.exists(DB_FILE):
 		with open(DB_FILE, "r") as f:
-			return json.load(f)
-	return [{"role": "system", "content": "You are a helpful and witty AI assistant."}]
+			try:
+				data = json.load(f)
+				formatted_history = []
+				for entry in data:
+					if entry["role"] == "system": continue
+					role = "user" if entry["role"] == "user" else "model"
+					formatted_history.append({
+						"role": role,
+						"parts": [{"text": entry["content"]}]
+					})
+				return formatted_history
+			except (json.JSONDecodeError, KeyError):
+				return []
+	return []
 
-def save_history(history):
+def save_history(gemini_history):
+	serializable_history = []
+	for message in gemini_history:
+		role = "user" if message.role == "user" else "assistant"
+		content = message.parts[0].text
+		serializable_history.append({"role": role, "content": content})
 	with open(DB_FILE, "w") as f:
-		json.dump(history, f, indent=4)
+		json.dump(serializable_history, f, indent=4)
 
-chat_history = load_history()
+initial_history = load_history()
 
-def chat_with_gpt(prompt):
-	chat_history.append({"role": "user", "content": prompt})
+chat_session = client.chats.create(
+	model=model_ID,
+	config=types.GenerateContentConfig(
+		system_instruction="You are a helpful and witty AI assistant."
+	),
+	history=initial_history
+)
 
-	response = client.chat.completions.create(
-		model="gpt-4o",
-		messages=chat_history
-	)
 
-	ai_msg = response.choices[0].message.content.strip()
-	chat_history.append({"role": "assistant", "content": ai_msg})
+def chat_with_gemini(prompt):
+	max_retries = 3
+	retry_delay = 2
+	
+	for attempt in range(max_retries):
+		try:
 
-	save_history(chat_history)
+			response = chat_session.send_message(prompt)
 
-	return ai_msg
+			save_history(chat_session._curated_history)
 
+			return response.text
+	
+		except Exception as e:
+			if "503" in str(e) or "429" in str(e):
+				if attempt < max_retries - 1:
+					print(f"Server Busy, Retrying in {retry_delay}s... (Attempt {attempt+1}/{max_retries})")
+					time.sleep(retry_delay)
+					retry_delay *= 2
+				else:
+					return "AI too busy, please try again."
+			else:
+				raise e
+	
 if __name__ == "__main__":
 	print(f"Chatbot loaded memory!")
 	while True:
 		user_input = input("You: ")
+		print("")
+
 		if user_input.lower() in ["quit", "exit", "bye"]:
 			print("Saving and exiting...")
 			break
 
 		try:
-			bot_text = chat_with_gpt(user_input)
+			bot_text = chat_with_gemini(user_input)
 			print("Chatbot: ", bot_text)
+			print("")
 		except Exception as e:
 			print(f"An error occurred: {e}")
